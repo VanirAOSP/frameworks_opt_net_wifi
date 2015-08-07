@@ -315,7 +315,9 @@ static int android_net_wifi_getInterfaces(JNIEnv *env, jclass cls) {
     }
 
     if (ifaceHandles == NULL) {
+#ifdef STE_HARDWARE
        THROW(env, "android_net_wifi_getInterfaces null interface array");
+#endif
        return 0;
     }
 
