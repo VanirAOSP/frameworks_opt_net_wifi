@@ -6346,9 +6346,11 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiPno
 
                     mWifiP2pChannel.sendMessage(WifiP2pServiceImpl.SET_COUNTRY_CODE, country);
                     break;
+
                 case CMD_GET_IBSS_SUPPORTED:
                     deferMessage(message);
                     break;
+
                 case CMD_RESET_SIM_NETWORKS:
                     log("resetting EAP-SIM/AKA/AKA' networks since SIM was removed");
                     mWifiConfigStore.resetSimNetworks();
