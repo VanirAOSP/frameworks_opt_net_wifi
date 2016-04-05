@@ -7740,7 +7740,7 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiPno
                             String imsi = tm.getSubscriberId(subId);
                             String mccMnc = "";
 
-                            if (tm.getSimState() == TelephonyManager.SIM_STATE_READY)
+                            if (tm.getSimState(subId) == TelephonyManager.SIM_STATE_READY)
                                  mccMnc = tm.getSimOperator(subId);
 
                             String identity = buildIdentity(eapMethod, imsi, mccMnc);
