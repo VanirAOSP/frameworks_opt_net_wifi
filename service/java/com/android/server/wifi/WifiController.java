@@ -93,8 +93,9 @@ public class WifiController extends StateMachine {
             "com.android.server.WifiManager.action.DEVICE_IDLE";
 
     /* References to values tracked in WifiService */
-    private final WifiStateMachine mWifiStateMachine;
-    private final WifiSettingsStore mSettingsStore;
+    final WifiStateMachine mWifiStateMachine;
+    private SoftApStateMachine mSoftApStateMachine = null;
+    final WifiSettingsStore mSettingsStore;
     private final WifiLockManager mWifiLockManager;
 
     /**
@@ -683,7 +684,9 @@ public class WifiController extends StateMachine {
          */
         private State getNextWifiState() {
             if (mSettingsStore.getWifiSavedState() == WifiSettingsStore.WIFI_ENABLED) {
-                return mDeviceActiveState;
+                if (!mStaAndApConcurrency) {
+                    return mDeviceActiveState;
+                }
             }
 
             if (mSettingsStore.isScanAlwaysAvailable()) {
@@ -698,14 +701,26 @@ public class WifiController extends StateMachine {
             switch (msg.what) {
                 case CMD_AIRPLANE_TOGGLED:
                     if (mSettingsStore.isAirplaneModeOn()) {
-                        mWifiStateMachine.setHostApRunning(null, false);
+                        if (mStaAndApConcurrency) {
+                            mSoftApStateMachine.setHostApRunning(null, false);
+                        } else {
+                            mWifiStateMachine.setHostApRunning(null, false);
+                        }
                         mPendingState = mApStaDisabledState;
                     }
                     break;
                 case CMD_WIFI_TOGGLED:
                     if (mSettingsStore.isWifiToggleEnabled()) {
-                        mWifiStateMachine.setHostApRunning(null, false);
-                        mPendingState = mDeviceActiveState;
+                        if (mStaAndApConcurrency) {
+                            deferMessage(obtainMessage(msg.what, msg.arg1,  1, msg.obj));
+                            if (DBG) {
+                                Slog.d(TAG,"ApEnabledState CMD_WIFI_TOGGLED transition To ApStaEnabledState");
+                            }
+                            transitionTo(mApStaEnabledState);
+                        } else {
+                            mWifiStateMachine.setHostApRunning(null, false);
+                            mPendingState = mStaEnabledState;
+                        }
                     }
                     break;
                 case CMD_SET_AP:

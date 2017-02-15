@@ -205,6 +205,10 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
     private final BuildProperties mBuildProperties;
     private final WifiCountryCode mCountryCode;
 
+
+    private int mNumSelectiveChannelScan = 0;
+    private int mMaxInitialSavedChannelScan;
+
     /* Scan results handling */
     private List<ScanDetail> mScanResults = new ArrayList<>();
     private final Object mScanResultsLock = new Object();
@@ -267,6 +271,7 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
     private boolean testNetworkDisconnect = false;
 
     private boolean mEnableRssiPolling = false;
+    private boolean mIsRandomMacCleared = false;
     private int mRssiPollToken = 0;
     /* 3 operational states for STA operation: CONNECT_MODE, SCAN_ONLY_MODE, SCAN_ONLY_WIFI_OFF_MODE
     * In CONNECT_MODE, the STA can scan and connect to an access point
@@ -411,6 +416,17 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
 
     public void autoRoamSetBSSID(int netId, String bssid) {
         autoRoamSetBSSID(mWifiConfigManager.getWifiConfiguration(netId), bssid);
+    }
+
+    public int getScanCount() {
+        return mNumSelectiveChannelScan;
+    }
+
+    public int getMaxConfiguredScanCount() {
+        return mMaxInitialSavedChannelScan;
+    }
+    public void setScanCount(int count) {
+        mNumSelectiveChannelScan = count;
     }
 
     public boolean autoRoamSetBSSID(WifiConfiguration config, String bssid) {
@@ -1099,6 +1115,9 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         mPrimaryDeviceType = mContext.getResources().getString(
                 R.string.config_wifi_p2p_device_type);
 
+        mMaxInitialSavedChannelScan = mContext.getResources().getInteger(
+                R.integer.config_max_initial_scans_on_selective_channels);
+
         mCountryCode = countryCode;
 
         mUserWantsSuspendOpt.set(mFacade.getIntegerSetting(mContext,
@@ -1466,6 +1485,11 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         logd("Setting OUI to " + oui);
         return mWifiNative.setScanningMacOui(ouiBytes);
     }
+    private boolean clearRandomMacOui() {
+        byte[] ouiBytes = new byte[]{0,0,0};
+        logd("Clear random OUI");
+        return mWifiNative.setScanningMacOui(ouiBytes);
+    }
 
     /**
      * ******************************************************
@@ -1679,13 +1703,20 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         }
 
         Set<Integer> freqs = null;
-        if (settings != null && settings.channelSet != null) {
-            freqs = new HashSet<Integer>();
-            for (WifiChannel channel : settings.channelSet) {
-                freqs.add(channel.freqMHz);
+        freqs = new HashSet<Integer>();
+        if (mNumSelectiveChannelScan <  mMaxInitialSavedChannelScan) {
+           freqs = mWifiConfigManager.getConfiguredChannelList();
+        }
+        if (freqs != null && (freqs.size() == 0)) {
+            freqs = null;
+        }
+        if (freqs == null) {
+            if (settings != null && settings.channelSet != null) {
+                for (WifiChannel channel : settings.channelSet) {
+                    freqs.add(channel.freqMHz);
+                }
             }
         }
-
         // Retrieve the list of hidden networkId's to scan for.
         Set<Integer> hiddenNetworkIds = mWifiConfigManager.getHiddenConfiguredNetworkIds();
 
@@ -1769,6 +1800,12 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         WifiScanner.ScanListener nativeScanListener = new WifiScanner.ScanListener() {
                 // ignore all events since WifiStateMachine is registered for the supplicant events
                 public void onSuccess() {
+                    /* As part of optimizing time for initial scans for
+                     * saved profiles, increment the  scan trigger count
+                     * upon receiving a success.
+                     */
+                    if (mNumSelectiveChannelScan < mMaxInitialSavedChannelScan)
+                        mNumSelectiveChannelScan++;
                 }
                 public void onFailure(int reason, String description) {
                     mIsScanOngoing = false;
@@ -4826,6 +4863,7 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
             mWifiLogger.startLogging(DBG);
             mIsRunning = true;
             updateBatteryWorkSource(null);
+            mNumSelectiveChannelScan = 0;
             /**
              * Enable bluetooth coexistence scan mode when bluetooth connection is active.
              * When this mode is on, some of the low-level scan parameters used by the
@@ -5515,6 +5553,8 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                             WifiLastResortWatchdog.FAILURE_CODE_ASSOCIATION);
                     break;
                 case WifiMonitor.AUTHENTICATION_FAILURE_EVENT:
+                    Intent intent = new Intent(WifiManager.ACTION_AUTH_PASSWORD_WRONG);
+                    mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
                     mWifiLogger.captureBugReportData(WifiLogger.REPORT_REASON_AUTH_FAILURE);
                     mSupplicantStateTracker.sendMessage(WifiMonitor.AUTHENTICATION_FAILURE_EVENT);
                     if (mTargetNetworkId != WifiConfiguration.INVALID_NETWORK_ID) {
@@ -6279,6 +6319,8 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
                     WpsResult wpsResult;
                     switch (wpsInfo.setup) {
                         case WpsInfo.PBC:
+                            clearRandomMacOui();
+                            mIsRandomMacCleared = true;
                             wpsResult = mWifiConfigManager.startWpsPbc(wpsInfo);
                             break;
                         case WpsInfo.KEYPAD:
@@ -7860,6 +7902,10 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
         public void exit() {
             mWifiConfigManager.enableAllNetworks();
             mWifiConfigManager.loadConfiguredNetworks();
+            if (mIsRandomMacCleared) {
+                setRandomMacOui();
+                mIsRandomMacCleared = false;
+            }
         }
     }
 
@@ -8472,7 +8518,6 @@ public class WifiStateMachine extends StateMachine implements WifiNative.WifiRss
             }
         }
     }
-
     /**
      * Check if there is any connection request for WiFi network.
      * Note, caller of this helper function must acquire mWifiReqCountLock.

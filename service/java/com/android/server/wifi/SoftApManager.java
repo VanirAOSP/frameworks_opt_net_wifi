@@ -35,6 +35,7 @@ import com.android.server.wifi.util.ApConfigUtil;
 
 import java.util.ArrayList;
 import java.util.Locale;
+import android.os.UserHandle;
 
 /**
  * Manage WiFi in AP mode.
@@ -49,7 +50,10 @@ public class SoftApManager {
 
     private final String mCountryCode;
 
-    private final String mInterfaceName;
+    private  String mInterfaceName;
+    private boolean mCreateNewInterface = false;
+    private int mSoftApChannel = 0;
+    private String mTetherInterfaceName;
 
     private final SoftApStateMachine mStateMachine;
 
