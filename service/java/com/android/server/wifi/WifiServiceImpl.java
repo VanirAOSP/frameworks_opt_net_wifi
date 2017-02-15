@@ -64,6 +64,7 @@ import android.os.BatteryStats;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -95,7 +96,15 @@ import com.android.server.wifi.configparse.ConfigBuilder;
 import org.xml.sax.SAXException;
 
 import java.io.BufferedReader;
+import java.io.BufferedInputStream;
+import java.io.EOFException;
+import java.io.File;
 import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.nio.channels.FileChannel;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
@@ -173,6 +182,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
     private final WifiCertManager mCertManager;
 
     private final WifiInjector mWifiInjector;
+    private boolean mIsControllerStarted = false;
     /**
      * Asynchronous channel to WifiStateMachine
      */
@@ -437,6 +447,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         mInIdleMode = mPowerManager.isDeviceIdleMode();
 
         mWifiController.start();
+        mIsControllerStarted = true;
 
         // If we are already disabled (could be due to airplane mode), avoid changing persist
         // state here
@@ -612,6 +623,10 @@ public class WifiServiceImpl extends IWifiManager.Stub {
             Binder.restoreCallingIdentity(ident);
         }
 
+        if (!mIsControllerStarted) {
+            Slog.e(TAG,"WifiController is not yet started, abort setWifiEnabled");
+            return false;
+        }
         mWifiController.sendMessage(CMD_WIFI_TOGGLED);
         return true;
     }
@@ -1496,6 +1511,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         intentFilter.addAction(Intent.ACTION_SCREEN_OFF);
         intentFilter.addAction(Intent.ACTION_BATTERY_CHANGED);
         intentFilter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+        intentFilter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
         intentFilter.addAction(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED);
         intentFilter.addAction(TelephonyIntents.ACTION_EMERGENCY_CALLBACK_MODE_CHANGED);
         intentFilter.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
@@ -1811,6 +1827,21 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         }
     }
 
+    public boolean getWifiStaSapConcurrency() {
+        return mStaAndApConcurrency == 1;
+    }
+
+    private void resetWifiNetworks() {
+        // Delete all Wifi SSIDs
+        List<WifiConfiguration> networks = getConfiguredNetworks();
+        if (networks != null) {
+            for (WifiConfiguration config : networks) {
+                 removeNetwork(config.networkId);
+            }
+            saveConfiguration();
+        }
+    }
+
     public void factoryReset() {
         enforceConnectivityInternalPermission();
 
@@ -1824,15 +1855,12 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         }
 
         if (!mUserManager.hasUserRestriction(UserManager.DISALLOW_CONFIG_WIFI)) {
-            // Enable wifi
-            setWifiEnabled(true);
-            // Delete all Wifi SSIDs
-            List<WifiConfiguration> networks = getConfiguredNetworks();
-            if (networks != null) {
-                for (WifiConfiguration config : networks) {
-                    removeNetwork(config.networkId);
-                }
-                saveConfiguration();
+            if (getWifiEnabledState() == WifiManager.WIFI_STATE_ENABLED) {
+                resetWifiNetworks();
+            } else {
+                mIsFactoryResetOn = true;
+                // Enable wifi
+                setWifiEnabled(true);
             }
         }
     }
