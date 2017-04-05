@@ -1504,11 +1504,11 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                    }
                } else if ( state ==  WifiManager.WIFI_STATE_DISABLED) {
                    if (mSubSystemRestart) {
-                        try {
-                            setWifiEnabled(context.getPackageName(), false);
-                        } catch(RemoteException ex) {
-                            Slog.w(TAG, "RemoteException occurred - ignoring it\n"+ex.toString());
-                        }
+                       try {
+                          setWifiEnabled(mContext.getPackageName(), true);
+                       } catch (RemoteException e) {
+                           /* ignore - local call */
+                       }
                    }
                }
             } else if (action.equals(WifiManager.WIFI_AP_STATE_CHANGED_ACTION)) {
@@ -1517,11 +1517,11 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                if (mSubSystemRestart) {
                    if (wifiApState == WifiManager.WIFI_AP_STATE_DISABLED) {
                        if (getWifiEnabledState() == WifiManager.WIFI_STATE_ENABLED) {
-                          try {
-                              setWifiEnabled(context.getPackageName(), false);
-                          } catch(RemoteException ex) {
-                              Slog.w(TAG, "RemoteException occurred - ignoring it\n"+ex.toString());
-                          }
+                           try {
+                               setWifiEnabled(mContext.getPackageName(), false);
+                           } catch (RemoteException e) {
+                               /* ignore - local call */
+                           }
                        } else {
                            /**
                             * STA in DISABLED state, hence just restart SAP.
@@ -1939,16 +1939,19 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         }
 
         if (!mUserManager.hasUserRestriction(UserManager.DISALLOW_CONFIG_WIFI)) {
-            if (getWifiEnabledState() == WifiManager.WIFI_STATE_ENABLED) {
-                resetWifiNetworks();
-            } else {
-                mIsFactoryResetOn = true;
-                // Enable wifi
-                try {
-                    setWifiEnabled(mContext.getOpPackageName(), true);
-                } catch (RemoteException e) {
-                    /* ignore - local call */
+            // Enable wifi
+            try {
+                setWifiEnabled(mContext.getOpPackageName(), true);
+            } catch (RemoteException e) {
+                /* ignore - local call */
+            }
+            // Delete all Wifi SSIDs
+            List<WifiConfiguration> networks = getConfiguredNetworks();
+            if (networks != null) {
+                for (WifiConfiguration config : networks) {
+                    removeNetwork(config.networkId);
                 }
+                saveConfiguration();
             }
         }
     }
