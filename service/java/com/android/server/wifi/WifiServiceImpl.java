@@ -1505,7 +1505,7 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                } else if ( state ==  WifiManager.WIFI_STATE_DISABLED) {
                    if (mSubSystemRestart) {
                        try {
-                          setWifiEnabled(mContext.getPackageName(), true);
+                           setWifiEnabled(mContext.getPackageName(), true);
                        } catch (RemoteException e) {
                            /* ignore - local call */
                        }
@@ -1939,19 +1939,16 @@ public class WifiServiceImpl extends IWifiManager.Stub {
         }
 
         if (!mUserManager.hasUserRestriction(UserManager.DISALLOW_CONFIG_WIFI)) {
-            // Enable wifi
-            try {
-                setWifiEnabled(mContext.getOpPackageName(), true);
-            } catch (RemoteException e) {
-                /* ignore - local call */
-            }
-            // Delete all Wifi SSIDs
-            List<WifiConfiguration> networks = getConfiguredNetworks();
-            if (networks != null) {
-                for (WifiConfiguration config : networks) {
-                    removeNetwork(config.networkId);
+            if (getWifiEnabledState() == WifiManager.WIFI_STATE_ENABLED) {
+                resetWifiNetworks();
+            } else {
+                mIsFactoryResetOn = true;
+                // Enable wifi
+                try {
+                    setWifiEnabled(mContext.getOpPackageName(), true);
+                } catch (RemoteException e) {
+                    /* ignore - local call */
                 }
-                saveConfiguration();
             }
         }
     }
